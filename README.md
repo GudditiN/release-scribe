@@ -44,7 +44,7 @@ jobs:
         with:
           fetch-depth: 0   # required — needs full git history
 
-      - uses: GudditiN/release-scribe@v1.0.2
+      - uses: GudditiN/release-scribe@v1.0.3
         with:
           api_key:        ${{ secrets.AI_API_KEY }}
           update_release: 'true'
