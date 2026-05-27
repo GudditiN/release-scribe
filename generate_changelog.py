@@ -191,7 +191,7 @@ def call_anthropic(system: str, user: str, model: str) -> str:
     data = http_post(
         "https://api.anthropic.com/v1/messages",
         {"x-api-key": API_KEY, "anthropic-version": "2023-06-01"},
-        {"model": model, "max_tokens": 4096,
+        {"model": model, "max_tokens": 8192,
          "system": system, "messages": [{"role": "user", "content": user}]}
     )
     return data["content"][0]["text"]
@@ -201,7 +201,7 @@ def call_openai(system: str, user: str, model: str) -> str:
     data = http_post(
         "https://api.openai.com/v1/chat/completions",
         {"Authorization": f"Bearer {API_KEY}"},
-        {"model": model, "max_tokens": 4096,
+        {"model": model, "max_tokens": 8192,
          "messages": [{"role": "system", "content": system},
                       {"role": "user", "content": user}]}
     )
@@ -213,7 +213,7 @@ def call_gemini(system: str, user: str, model: str) -> str:
         f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={API_KEY}",
         {},
         {"contents": [{"parts": [{"text": f"{system}\n\n{user}"}]}],
-         "generationConfig": {"maxOutputTokens": 4096}}
+         "generationConfig": {"maxOutputTokens": 8192}}
     )
     return data["candidates"][0]["content"]["parts"][0]["text"]
 
@@ -222,7 +222,7 @@ def call_mistral(system: str, user: str, model: str) -> str:
     data = http_post(
         "https://api.mistral.ai/v1/chat/completions",
         {"Authorization": f"Bearer {API_KEY}"},
-        {"model": model, "max_tokens": 4096,
+        {"model": model, "max_tokens": 8192,
          "messages": [{"role": "system", "content": system},
                       {"role": "user", "content": user}]}
     )
@@ -233,7 +233,7 @@ def call_groq(system: str, user: str, model: str) -> str:
     data = http_post(
         "https://api.groq.com/openai/v1/chat/completions",
         {"Authorization": f"Bearer {API_KEY}"},
-        {"model": model, "max_tokens": 4096,
+        {"model": model, "max_tokens": 8192,
          "messages": [{"role": "system", "content": system},
                       {"role": "user", "content": user}]}
     )
@@ -244,7 +244,7 @@ def call_cohere(system: str, user: str, model: str) -> str:
     data = http_post(
         "https://api.cohere.ai/v1/chat",
         {"Authorization": f"Bearer {API_KEY}"},
-        {"model": model, "max_tokens": 4096,
+        {"model": model, "max_tokens": 8192,
          "preamble": system, "message": user}
     )
     return data["text"]
@@ -310,7 +310,7 @@ STYLE_INSTRUCTIONS = {
 
 
 SYSTEM_PROMPT = textwrap.dedent("""
-    You are a technical writer who creates clear, accurate, developer-friendly changelogs.
+    You are a senior technical writer who creates clear, accurate, developer-friendly changelogs.
 
     Rules:
     - Write for the humans reading this, not for search engines.
@@ -318,7 +318,11 @@ SYSTEM_PROMPT = textwrap.dedent("""
     - Skip noise: merge commits, version bumps, typo fixes, and formatting-only changes
       should be omitted or collapsed into a single brief mention.
     - Infer the intent behind cryptic commit messages — "fix bug in auth" beats "fix #1234".
-    - Group duplicates — don't list five separate "fix test" bullets.
+    - ALWAYS group similar commits into a single bullet. For example, multiple "Adaptive X screen"
+      commits should become one bullet: "Added adaptive UI support across Label, Project, Task, and About screens".
+    - Expand terse commit messages into meaningful descriptions that explain the user impact.
+    - Aim for 5-15 bullets total — quality over quantity.
+    - Always complete every bullet point fully — never truncate mid-sentence.
     - Output ONLY the markdown content requested. No preamble, no meta-commentary.
     - Never wrap output in code fences.
 """).strip()
@@ -342,6 +346,12 @@ def build_prompt(commits: list[Commit], version: str, from_tag: str, style_instr
         Style instructions:
         {style_instr}
 
+        Important:
+        - Group related commits into single meaningful bullets (e.g. multiple screen/UI commits → one bullet).
+        - Expand terse commit messages to explain what changed and why it matters.
+        - Aim for 5-15 total bullets. Skip trivial changes entirely.
+        - Every bullet must be a complete sentence — never cut off mid-word or mid-sentence.
+
         The entry must begin with exactly:
         ## [{version}] - {today}
 
@@ -357,9 +367,11 @@ def build_prompt(commits: list[Commit], version: str, from_tag: str, style_instr
 
         Rules:
         - Start with a 1-2 sentence summary of what this release is about.
-        - Then bullet-list the most important changes (max 10 bullets).
+        - Then bullet-list the top 8 most impactful changes — group similar commits into one bullet.
+        - Each bullet must be a complete sentence explaining user impact, not just a commit title.
         - End with: **Full changelog**: `{from_tag}...{version}`
         - Do NOT repeat the version heading — GitHub adds it automatically.
+        - Never truncate — always finish every sentence completely.
         - Use markdown but keep it clean.
 
         Style: {STYLE}
