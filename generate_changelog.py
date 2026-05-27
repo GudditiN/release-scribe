@@ -265,7 +265,23 @@ def call_llm(system: str, user: str) -> str:
         raise ValueError(f"Unknown provider '{PROVIDER}'. Choose: {', '.join(CALLERS)}")
     model = MODEL or DEFAULT_MODELS[PROVIDER]
     print(f"  Using {PROVIDER} / {model}")
-    return CALLERS[PROVIDER](system, user, model)
+
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            return CALLERS[PROVIDER](system, user, model)
+        except RuntimeError as e:
+            msg = str(e)
+            if "429" not in msg or attempt == max_retries - 1:
+                raise
+            # Parse suggested wait time from error message
+            wait = 65.0
+            match = re.search(r"try again in ([\d.]+)s", msg)
+            if match:
+                wait = float(match.group(1)) + 5.0
+            print(f"  Rate limited — waiting {wait:.0f}s before retry ({attempt + 1}/{max_retries})…")
+            time.sleep(wait)
+    raise RuntimeError("Max retries exceeded")
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -540,10 +556,8 @@ def main():
     print("\n📝  Generating CHANGELOG.md entry…")
     changelog_entry = call_llm(SYSTEM_PROMPT, changelog_prompt).strip()
 
-    # Generate release notes (Groq free tier needs a gap between calls)
+    # Generate release notes
     print("📢  Generating Release Notes…")
-    if PROVIDER == "groq":
-        time.sleep(15)
     release_notes = call_llm(SYSTEM_PROMPT, release_prompt).strip()
 
     # Write CHANGELOG.md
