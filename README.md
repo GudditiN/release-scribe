@@ -1,9 +1,9 @@
-# AI Changelog Generator
+# Release Scribe
 
 > Automatically generate polished `CHANGELOG.md` entries and GitHub Release notes from your commit history — using any LLM provider you already have a key for.
 
-[![GitHub Marketplace](https://img.shields.io/badge/Marketplace-AI%20Changelog%20Generator-purple?logo=github)](https://github.com/marketplace/actions/ai-changelog-generator)
-[![Release](https://img.shields.io/github/v/release/GudditiN/release-scribe)](https://github.com/GudditiN/release-scribe/releases/tag/v1.0.0)
+[![GitHub Marketplace](https://img.shields.io/badge/Marketplace-Release%20Scribe-purple?logo=github)](https://github.com/marketplace/actions/release-scribe)
+[![Release](https://img.shields.io/github/v/release/GudditiN/release-scribe)](https://github.com/GudditiN/release-scribe/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
@@ -44,7 +44,7 @@ jobs:
         with:
           fetch-depth: 0   # required — needs full git history
 
-      - uses: GudditiN/ai-changelog-generator@v1
+      - uses: GudditiN/release-scribe@v1
         with:
           api_key:        ${{ secrets.AI_API_KEY }}
           update_release: 'true'

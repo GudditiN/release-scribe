@@ -3,7 +3,7 @@
 # ──────────────────────────────────────────────────────────────────
 #
 # Copy this to YOUR project's .github/workflows/changelog.yml
-# This file must NOT be in the ai-changelog-generator repo itself.
+# This file must NOT be in the release-scribe repo itself.
 
 name: Generate Changelog
 
