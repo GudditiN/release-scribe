@@ -265,22 +265,7 @@ def call_llm(system: str, user: str, max_tokens: int = 4096) -> str:
         raise ValueError(f"Unknown provider '{PROVIDER}'. Choose: {', '.join(CALLERS)}")
     model = MODEL or DEFAULT_MODELS[PROVIDER]
     print(f"  Using {PROVIDER} / {model}")
-
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            return CALLERS[PROVIDER](system, user, model, max_tokens)
-        except RuntimeError as e:
-            msg = str(e)
-            if "429" not in msg or attempt == max_retries - 1:
-                raise
-            wait = 65.0
-            match = re.search(r"try again in ([\d.]+)s", msg)
-            if match:
-                wait = float(match.group(1)) + 5.0
-            print(f"  Rate limited — waiting {wait:.0f}s before retry ({attempt + 1}/{max_retries})…")
-            time.sleep(wait)
-    raise RuntimeError("Max retries exceeded")
+    return CALLERS[PROVIDER](system, user, model, max_tokens)
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -546,6 +531,16 @@ def main():
     if not meaningful:
         print("⚠️  All commits were filtered as noise. Using all commits instead.")
         meaningful = commits
+
+    # Groq free tier has a 12K TPM limit — cap commits to keep both calls within budget
+    PROVIDER_COMMIT_CAPS = {"groq": 40}
+    if PROVIDER in PROVIDER_COMMIT_CAPS and MAX_COMMITS == 0 or (
+        PROVIDER in PROVIDER_COMMIT_CAPS and len(meaningful) > PROVIDER_COMMIT_CAPS[PROVIDER]
+    ):
+        cap = PROVIDER_COMMIT_CAPS[PROVIDER]
+        if len(meaningful) > cap:
+            print(f"  ⚠️  Groq free tier: capping commits to {cap} to stay within TPM limits.")
+            meaningful = meaningful[:cap]
 
     # Build prompts
     style_instr = STYLE_INSTRUCTIONS.get(STYLE, STYLE_INSTRUCTIONS["keepachangelog"])
