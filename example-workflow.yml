@@ -47,7 +47,7 @@ jobs:
 
       - name: Generate changelog
         id: changelog
-        uses: GudditiN/release-scribe@v1
+        uses: GudditiN/release-scribe@v1.0.2
         with:
           provider:       ${{ github.event.inputs.provider || vars.AI_PROVIDER || 'anthropic' }}
           api_key:        ${{ secrets.AI_API_KEY }}
@@ -99,7 +99,7 @@ jobs:
 #       # 2. Generate changelog (auto-updates the release body too)
 #       - name: Generate changelog
 #         id: cl
-#         uses: GudditiN/release-scribe@v1
+#         uses: GudditiN/release-scribe@v1.0.2
 #         with:
 #           api_key:        ${{ secrets.AI_API_KEY }}
 #           update_release: 'true'
