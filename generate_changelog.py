@@ -187,64 +187,64 @@ def http_post(url: str, headers: dict, body: dict) -> dict:
         raise RuntimeError(f"HTTP {e.code} from {url}: {msg[:400]}") from e
 
 
-def call_anthropic(system: str, user: str, model: str) -> str:
+def call_anthropic(system: str, user: str, model: str, max_tokens: int = 4096) -> str:
     data = http_post(
         "https://api.anthropic.com/v1/messages",
         {"x-api-key": API_KEY, "anthropic-version": "2023-06-01"},
-        {"model": model, "max_tokens": 8192,
+        {"model": model, "max_tokens": max_tokens,
          "system": system, "messages": [{"role": "user", "content": user}]}
     )
     return data["content"][0]["text"]
 
 
-def call_openai(system: str, user: str, model: str) -> str:
+def call_openai(system: str, user: str, model: str, max_tokens: int = 4096) -> str:
     data = http_post(
         "https://api.openai.com/v1/chat/completions",
         {"Authorization": f"Bearer {API_KEY}"},
-        {"model": model, "max_tokens": 8192,
+        {"model": model, "max_tokens": max_tokens,
          "messages": [{"role": "system", "content": system},
                       {"role": "user", "content": user}]}
     )
     return data["choices"][0]["message"]["content"]
 
 
-def call_gemini(system: str, user: str, model: str) -> str:
+def call_gemini(system: str, user: str, model: str, max_tokens: int = 4096) -> str:
     data = http_post(
         f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={API_KEY}",
         {},
         {"contents": [{"parts": [{"text": f"{system}\n\n{user}"}]}],
-         "generationConfig": {"maxOutputTokens": 8192}}
+         "generationConfig": {"maxOutputTokens": max_tokens}}
     )
     return data["candidates"][0]["content"]["parts"][0]["text"]
 
 
-def call_mistral(system: str, user: str, model: str) -> str:
+def call_mistral(system: str, user: str, model: str, max_tokens: int = 4096) -> str:
     data = http_post(
         "https://api.mistral.ai/v1/chat/completions",
         {"Authorization": f"Bearer {API_KEY}"},
-        {"model": model, "max_tokens": 8192,
+        {"model": model, "max_tokens": max_tokens,
          "messages": [{"role": "system", "content": system},
                       {"role": "user", "content": user}]}
     )
     return data["choices"][0]["message"]["content"]
 
 
-def call_groq(system: str, user: str, model: str) -> str:
+def call_groq(system: str, user: str, model: str, max_tokens: int = 4096) -> str:
     data = http_post(
         "https://api.groq.com/openai/v1/chat/completions",
         {"Authorization": f"Bearer {API_KEY}"},
-        {"model": model, "max_tokens": 8192,
+        {"model": model, "max_tokens": max_tokens,
          "messages": [{"role": "system", "content": system},
                       {"role": "user", "content": user}]}
     )
     return data["choices"][0]["message"]["content"]
 
 
-def call_cohere(system: str, user: str, model: str) -> str:
+def call_cohere(system: str, user: str, model: str, max_tokens: int = 4096) -> str:
     data = http_post(
         "https://api.cohere.ai/v1/chat",
         {"Authorization": f"Bearer {API_KEY}"},
-        {"model": model, "max_tokens": 8192,
+        {"model": model, "max_tokens": max_tokens,
          "preamble": system, "message": user}
     )
     return data["text"]
@@ -260,7 +260,7 @@ CALLERS = {
 }
 
 
-def call_llm(system: str, user: str) -> str:
+def call_llm(system: str, user: str, max_tokens: int = 4096) -> str:
     if PROVIDER not in CALLERS:
         raise ValueError(f"Unknown provider '{PROVIDER}'. Choose: {', '.join(CALLERS)}")
     model = MODEL or DEFAULT_MODELS[PROVIDER]
@@ -269,12 +269,11 @@ def call_llm(system: str, user: str) -> str:
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            return CALLERS[PROVIDER](system, user, model)
+            return CALLERS[PROVIDER](system, user, model, max_tokens)
         except RuntimeError as e:
             msg = str(e)
             if "429" not in msg or attempt == max_retries - 1:
                 raise
-            # Parse suggested wait time from error message
             wait = 65.0
             match = re.search(r"try again in ([\d.]+)s", msg)
             if match:
@@ -554,11 +553,11 @@ def main():
 
     # Generate changelog entry
     print("\n📝  Generating CHANGELOG.md entry…")
-    changelog_entry = call_llm(SYSTEM_PROMPT, changelog_prompt).strip()
+    changelog_entry = call_llm(SYSTEM_PROMPT, changelog_prompt, max_tokens=4096).strip()
 
     # Generate release notes
     print("📢  Generating Release Notes…")
-    release_notes = call_llm(SYSTEM_PROMPT, release_prompt).strip()
+    release_notes = call_llm(SYSTEM_PROMPT, release_prompt, max_tokens=2048).strip()
 
     # Write CHANGELOG.md
     print(f"\n💾  Writing {CHANGELOG_FILE}…")
