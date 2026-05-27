@@ -1,0 +1,116 @@
+name: 'AI Changelog Generator'
+description: 'Reads commits since the last tag and writes a polished CHANGELOG.md + GitHub Release notes using any LLM provider.'
+author: 'GudditiN'
+
+branding:
+  icon: 'file-text'
+  color: 'purple'
+
+inputs:
+  # ── LLM provider ────────────────────────────────────────────────
+  provider:
+    description: 'LLM provider to use: anthropic | openai | gemini | mistral | groq | cohere'
+    required: false
+    default: 'anthropic'
+
+  api_key:
+    description: 'API key for the chosen LLM provider. Store as a GitHub secret.'
+    required: true
+
+  model:
+    description: 'Model override. Leave blank to use the provider default (e.g. gemini-2.0-flash, gpt-4o, claude-opus-4-5).'
+    required: false
+    default: ''
+
+  # ── Git / release config ─────────────────────────────────────────
+  from_tag:
+    description: 'Start tag for the commit range. Defaults to the latest git tag in the repo.'
+    required: false
+    default: ''
+
+  to_ref:
+    description: 'End ref for the commit range (branch, tag, or SHA). Defaults to HEAD.'
+    required: false
+    default: 'HEAD'
+
+  release_version:
+    description: 'Version label for this changelog entry (e.g. v2.1.0). Inferred from GITHUB_REF if blank.'
+    required: false
+    default: ''
+
+  # ── Output control ───────────────────────────────────────────────
+  changelog_file:
+    description: 'Path to the CHANGELOG.md file to update.'
+    required: false
+    default: 'CHANGELOG.md'
+
+  output_release_notes:
+    description: 'Also write a standalone RELEASE_NOTES.md for use in the GitHub Release body.'
+    required: false
+    default: 'true'
+
+  max_commits:
+    description: 'Maximum number of commits to include (most recent first). 0 = unlimited.'
+    required: false
+    default: '200'
+
+  # ── Style / tone ─────────────────────────────────────────────────
+  style:
+    description: 'Changelog style: keepachangelog | conventional | narrative'
+    required: false
+    default: 'keepachangelog'
+
+  project_context:
+    description: 'Optional one-line description of the project to help the AI write better summaries.'
+    required: false
+    default: ''
+
+  # ── GitHub integration ───────────────────────────────────────────
+  github_token:
+    description: 'GitHub token to auto-update the Release body. Pass secrets.GITHUB_TOKEN.'
+    required: false
+    default: ''
+
+  update_release:
+    description: 'Automatically update the GitHub Release body with the generated notes.'
+    required: false
+    default: 'false'
+
+outputs:
+  changelog_entry:
+    description: 'The generated changelog entry (markdown string).'
+    value: ${{ steps.run.outputs.changelog_entry }}
+
+  release_notes:
+    description: 'The generated release notes (markdown string, suitable for GitHub Release body).'
+    value: ${{ steps.run.outputs.release_notes }}
+
+  from_tag:
+    description: 'The resolved start tag used for the commit range.'
+    value: ${{ steps.run.outputs.from_tag }}
+
+  commit_count:
+    description: 'Number of commits included in the changelog.'
+    value: ${{ steps.run.outputs.commit_count }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Generate Changelog
+      id: run
+      shell: bash
+      env:
+        INPUT_PROVIDER: ${{ inputs.provider }}
+        INPUT_API_KEY: ${{ inputs.api_key }}
+        INPUT_MODEL: ${{ inputs.model }}
+        INPUT_FROM_TAG: ${{ inputs.from_tag }}
+        INPUT_TO_REF: ${{ inputs.to_ref }}
+        INPUT_RELEASE_VERSION: ${{ inputs.release_version }}
+        INPUT_CHANGELOG_FILE: ${{ inputs.changelog_file }}
+        INPUT_OUTPUT_RELEASE_NOTES: ${{ inputs.output_release_notes }}
+        INPUT_MAX_COMMITS: ${{ inputs.max_commits }}
+        INPUT_STYLE: ${{ inputs.style }}
+        INPUT_PROJECT_CONTEXT: ${{ inputs.project_context }}
+        INPUT_GITHUB_TOKEN: ${{ inputs.github_token }}
+        INPUT_UPDATE_RELEASE: ${{ inputs.update_release }}
+      run: python3 ${{ github.action_path }}/generate_changelog.py

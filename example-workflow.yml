@@ -1,0 +1,113 @@
+# ──────────────────────────────────────────────────────────────────
+# Example 1 — Auto-run on every new tag push (recommended)
+# ──────────────────────────────────────────────────────────────────
+#
+# Copy this to YOUR project's .github/workflows/changelog.yml
+# This file must NOT be in the ai-changelog-generator repo itself.
+
+name: Generate Changelog
+
+on:
+  push:
+    tags:
+      - 'v*'          # triggers on v1.0.0, v2.3.1, etc.
+
+  # Also allow manual runs from the Actions tab
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version label (e.g. v1.2.3). Leave blank to auto-detect.'
+        required: false
+      provider:
+        description: 'LLM provider'
+        required: false
+        default: 'anthropic'
+        type: choice
+        options: [anthropic, openai, gemini, mistral, groq, cohere]
+      style:
+        description: 'Changelog style'
+        required: false
+        default: 'keepachangelog'
+        type: choice
+        options: [keepachangelog, conventional, narrative]
+
+permissions:
+  contents: write    # needed to push CHANGELOG.md and update releases
+
+jobs:
+  changelog:
+    name: AI Changelog
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0    # REQUIRED — needs full git history for tags
+
+      - name: Generate changelog
+        id: changelog
+        uses: GudditiN/release-scribe@v1
+        with:
+          provider:       ${{ github.event.inputs.provider || vars.AI_PROVIDER || 'anthropic' }}
+          api_key:        ${{ secrets.AI_API_KEY }}
+          release_version: ${{ github.event.inputs.version }}
+          style:          ${{ github.event.inputs.style || 'keepachangelog' }}
+          update_release: 'true'
+          github_token:   ${{ secrets.GITHUB_TOKEN }}
+          project_context: 'Your project description here (optional)'
+
+      - name: Commit updated CHANGELOG.md
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md RELEASE_NOTES.md
+          git diff --staged --quiet || git commit -m "docs: update changelog for ${{ steps.changelog.outputs.from_tag }}..HEAD"
+          git push origin HEAD:${{ github.event.repository.default_branch }}
+
+      - name: Summary
+        run: |
+          echo "### Changelog generated" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commits included**: ${{ steps.changelog.outputs.commit_count }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **From tag**: \`${{ steps.changelog.outputs.from_tag }}\`" >> $GITHUB_STEP_SUMMARY
+
+
+# ──────────────────────────────────────────────────────────────────
+# Example 2 — Part of a full release pipeline
+# ──────────────────────────────────────────────────────────────────
+
+# name: Release Pipeline
+#
+# on:
+#   push:
+#     tags: ['v*']
+#
+# permissions:
+#   contents: write
+#
+# jobs:
+#   release:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v4
+#         with:
+#           fetch-depth: 0
+#
+#       # 1. Build / test your project
+#       - run: npm ci && npm test
+#
+#       # 2. Generate changelog (auto-updates the release body too)
+#       - name: Generate changelog
+#         id: cl
+#         uses: GudditiN/release-scribe@v1
+#         with:
+#           api_key:        ${{ secrets.AI_API_KEY }}
+#           update_release: 'true'
+#           github_token:   ${{ secrets.GITHUB_TOKEN }}
+#
+#       # 3. Use the release notes output in a subsequent step
+#       - name: Create GitHub Release
+#         uses: softprops/action-gh-release@v2
+#         with:
+#           body: ${{ steps.cl.outputs.release_notes }}
+#           files: dist/*.zip
