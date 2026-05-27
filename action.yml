@@ -1,4 +1,4 @@
-name: 'AI Changelog Generator'
+name: 'Release Scribe'
 description: 'Reads commits since the last tag and writes a polished CHANGELOG.md + GitHub Release notes using any LLM provider.'
 author: 'GudditiN'
 
