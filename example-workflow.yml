@@ -57,6 +57,21 @@ jobs:
           github_token:   ${{ secrets.GITHUB_TOKEN }}
           project_context: 'Your project description here (optional)'
 
+          # ── Everything below is optional — delete what you don't need ──
+          # custom_instructions: 'Write for end users. Keep bullets short.'
+          # custom_instructions_file: '.github/release-style.md'
+          # fallback_providers: 'openai:gpt-4o, gemini'
+          # provider_keys: |
+          #   openai=${{ secrets.OPENAI_KEY }}
+          #   gemini=${{ secrets.GEMINI_KEY }}
+          # slack_mode: both                     # message | files | both
+          # slack_webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          # slack_bot_token:   ${{ secrets.SLACK_BOT_TOKEN }}
+          # slack_channel_id:  C0123456789
+          # update_readme: 'true'
+          # upload_artifact: 'true'
+          # dry_run: 'true'
+
       - name: Commit updated CHANGELOG.md
         run: |
           git config user.name  "github-actions[bot]"

@@ -93,6 +93,92 @@ Add your API key: **Settings → Secrets → Actions → New secret** → name i
 | `project_context` | no | — | One-liner about your project (improves quality) |
 | `github_token` | no | — | Pass `secrets.GITHUB_TOKEN` to auto-update Release body |
 | `update_release` | no | `false` | Patch the GitHub Release body with generated notes |
+| `fallback_providers` | no | — | Backup models tried in order if the primary fails, e.g. `openai:gpt-4o, gemini` |
+| `provider_keys` | no | — | Keys for fallback providers as `provider=key` lines (use secrets) |
+| `custom_instructions` | no | — | Extra instructions for the AI (tone, audience, rules) |
+| `custom_instructions_file` | no | — | Path to a file of extra instructions (combined with the above) |
+| `max_input_tokens` | no | auto | Cap commit tokens per LLM call; bigger histories are summarised in chunks |
+| `dry_run` | no | `false` | Print the notes only — no files written, nothing sent |
+| `slack_mode` | no | `auto` | `message` \| `files` \| `both` — see [Slack](#slack-optional) |
+| `slack_webhook_url` | no | — | Incoming webhook for the summary message |
+| `slack_bot_token` | no | — | Bot token (`files:write`) for uploading the built files |
+| `slack_channel_id` | no | — | Channel ID (e.g. `C0123456789`) for file uploads |
+| `update_readme` | no | `false` | Keep a "Latest release" block in your README |
+| `readme_file` | no | `README.md` | README path for `update_readme` |
+| `upload_artifact` | no | `false` | Upload the built files as a downloadable workflow artifact |
+| `artifact_name` | no | `release-notes` | Artifact name |
+
+## Optional features
+
+Everything below is **off by default** — add only what you need.
+
+### Custom instructions
+
+```yaml
+with:
+  custom_instructions: 'Write for end users, not developers. Use British spelling.'
+  custom_instructions_file: '.github/release-style.md'   # optional file in your repo
+```
+
+### Backup models (multi-provider)
+
+If the primary provider is rate-limited or down, the next one is tried automatically.
+
+```yaml
+with:
+  provider: groq
+  api_key: ${{ secrets.GROQ_KEY }}
+  fallback_providers: 'openai:gpt-4o, gemini'
+  provider_keys: |
+    openai=${{ secrets.OPENAI_KEY }}
+    gemini=${{ secrets.GEMINI_KEY }}
+```
+
+### Slack (optional)
+
+Pick what Slack receives with `slack_mode`:
+
+| `slack_mode` | Sends | Needs |
+|---|---|---|
+| `message` | Summary post: tag, previous tag, commit count, model, notes, links to Release / Compare / workflow run | `slack_webhook_url` |
+| `files` | Uploads `CHANGELOG.md` and `RELEASE_NOTES.md` to the channel | `slack_bot_token` + `slack_channel_id` |
+| `both` | The summary message, then the files | all three |
+| `auto` *(default)* | Whatever you configured | — |
+
+Incoming webhooks can't attach files, so file upload uses a bot token.
+
+**Summary message only (simplest):** create an [Incoming Webhook](https://api.slack.com/messaging/webhooks), save the URL as secret `SLACK_WEBHOOK_URL`, then:
+
+```yaml
+with:
+  slack_webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+```
+
+**With files:** create a Slack app with the `files:write` scope, install it, **invite the bot to the channel** (`/invite @yourbot`), and use the channel **ID** (not the name):
+
+```yaml
+with:
+  slack_mode: both
+  slack_webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+  slack_bot_token:   ${{ secrets.SLACK_BOT_TOKEN }}
+  slack_channel_id:  C0123456789
+```
+
+A Slack problem never fails your release — it logs a warning instead.
+
+### README block and downloadable artifact
+
+```yaml
+with:
+  update_readme: 'true'      # fills a block between <!-- release-scribe:start --> / <!-- release-scribe:end -->
+  upload_artifact: 'true'    # CHANGELOG.md, RELEASE_NOTES.md, release-data.json under the run's Artifacts
+```
+
+### Try it safely
+
+Set `dry_run: 'true'` to print the generated notes without writing files or sending anything.
+
+---
 
 ## Outputs
 

@@ -22,6 +22,16 @@ inputs:
     required: false
     default: ''
 
+  fallback_providers:
+    description: 'Optional backup models tried in order if the primary fails (rate limit, outage). Comma/newline list of provider[:model], e.g. "openai:gpt-4o, gemini".'
+    required: false
+    default: ''
+
+  provider_keys:
+    description: 'API keys for fallback providers as provider=key lines (use secrets). Alternatively set OPENAI_API_KEY, GEMINI_API_KEY, etc. as env vars.'
+    required: false
+    default: ''
+
   # ── Git / release config ─────────────────────────────────────────
   from_tag:
     description: 'Start tag for the commit range. Defaults to the latest git tag in the repo.'
@@ -76,6 +86,68 @@ inputs:
     required: false
     default: 'false'
 
+  # ── Custom instructions (all optional) ──────────────────────────
+  custom_instructions:
+    description: 'Optional extra instructions for the AI (tone, audience, wording rules). Inline text.'
+    required: false
+    default: ''
+
+  custom_instructions_file:
+    description: 'Optional path to a file (relative to the repo root) containing extra instructions. Combined with custom_instructions if both are set.'
+    required: false
+    default: ''
+
+  max_input_tokens:
+    description: 'Optional cap on commit tokens per LLM call. Larger histories are summarised in chunks. 0 = auto (limited only on Groq free tier).'
+    required: false
+    default: '0'
+
+  dry_run:
+    description: 'Print the generated notes without writing files or sending anything.'
+    required: false
+    default: 'false'
+
+  # ── Optional integrations (off unless configured) ───────────────
+  slack_mode:
+    description: 'What to send to Slack: message (summary via webhook) | files (upload CHANGELOG.md/RELEASE_NOTES.md via bot token) | both | auto (default: use whatever is configured).'
+    required: false
+    default: 'auto'
+
+  slack_webhook_url:
+    description: 'Slack incoming-webhook URL. Posts a message with tag details and links (webhooks cannot attach files; use slack_bot_token for that). Store as a secret.'
+    required: false
+    default: ''
+
+  slack_bot_token:
+    description: 'Optional Slack bot token (xoxb-…, scope files:write). With slack_channel_id, uploads CHANGELOG.md and RELEASE_NOTES.md to the channel. Store as a secret.'
+    required: false
+    default: ''
+
+  slack_channel_id:
+    description: 'Slack channel ID (e.g. C0123456789, not the name) for file uploads. The bot must be invited to the channel.'
+    required: false
+    default: ''
+
+  update_readme:
+    description: 'Write the latest release notes into a marked block in the README.'
+    required: false
+    default: 'false'
+
+  readme_file:
+    description: 'README path used when update_readme is true.'
+    required: false
+    default: 'README.md'
+
+  upload_artifact:
+    description: 'Upload CHANGELOG.md, RELEASE_NOTES.md and release-data.json as a downloadable workflow artifact.'
+    required: false
+    default: 'false'
+
+  artifact_name:
+    description: 'Name of the uploaded artifact.'
+    required: false
+    default: 'release-notes'
+
 outputs:
   changelog_entry:
     description: 'The generated changelog entry (markdown string).'
@@ -103,6 +175,8 @@ runs:
         INPUT_PROVIDER: ${{ inputs.provider }}
         INPUT_API_KEY: ${{ inputs.api_key }}
         INPUT_MODEL: ${{ inputs.model }}
+        INPUT_FALLBACK_PROVIDERS: ${{ inputs.fallback_providers }}
+        INPUT_PROVIDER_KEYS: ${{ inputs.provider_keys }}
         INPUT_FROM_TAG: ${{ inputs.from_tag }}
         INPUT_TO_REF: ${{ inputs.to_ref }}
         INPUT_RELEASE_VERSION: ${{ inputs.release_version }}
@@ -113,4 +187,25 @@ runs:
         INPUT_PROJECT_CONTEXT: ${{ inputs.project_context }}
         INPUT_GITHUB_TOKEN: ${{ inputs.github_token }}
         INPUT_UPDATE_RELEASE: ${{ inputs.update_release }}
+        INPUT_CUSTOM_INSTRUCTIONS: ${{ inputs.custom_instructions }}
+        INPUT_CUSTOM_INSTRUCTIONS_FILE: ${{ inputs.custom_instructions_file }}
+        INPUT_MAX_INPUT_TOKENS: ${{ inputs.max_input_tokens }}
+        INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        INPUT_SLACK_MODE: ${{ inputs.slack_mode }}
+        INPUT_SLACK_WEBHOOK_URL: ${{ inputs.slack_webhook_url }}
+        INPUT_SLACK_BOT_TOKEN: ${{ inputs.slack_bot_token }}
+        INPUT_SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
+        INPUT_UPDATE_README: ${{ inputs.update_readme }}
+        INPUT_README_FILE: ${{ inputs.readme_file }}
       run: python3 ${{ github.action_path }}/generate_changelog.py
+
+    - name: Upload release notes artifact
+      if: ${{ inputs.upload_artifact == 'true' && inputs.dry_run != 'true' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact_name }}
+        path: |
+          ${{ inputs.changelog_file }}
+          RELEASE_NOTES.md
+          release-data.json
+        if-no-files-found: warn
