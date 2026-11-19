@@ -117,10 +117,19 @@ def run_git(*args) -> str:
 
 
 def latest_tag() -> str:
-    tag = run_git("describe", "--tags", "--abbrev=0")
+    """Most recent tag before TO_REF, ignoring tags that point at TO_REF itself.
+
+    On a tag push HEAD *is* the new tag, so a plain `git describe` would return
+    the tag being released and the commit range would be empty.
+    """
+    args = ["describe", "--tags", "--abbrev=0"]
+    for t in run_git("tag", "--points-at", TO_REF).splitlines():
+        if t.strip():
+            args.append(f"--exclude={t.strip()}")
+    tag = run_git(*args, TO_REF)
     if not tag:
-        # No tags at all — use the first commit
-        tag = run_git("rev-list", "--max-parents=0", "HEAD")
+        # No earlier tags — use the first commit
+        tag = run_git("rev-list", "--max-parents=0", TO_REF).splitlines()[0]
     return tag
 
 

@@ -73,6 +73,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          [ -f CHANGELOG.md ] || { echo "No CHANGELOG.md was generated."; exit 0; }
           git add CHANGELOG.md
           if git diff --staged --quiet; then
             echo "No changelog changes."
