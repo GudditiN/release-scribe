@@ -1,5 +1,10 @@
 # Changelog
 
+## [v1.1.4] - 2026-11-19
+
+### Added
+- Introduced PR‑aware release notes with audience‑specific modes and a redesigned Slack message format. The new `source` option (`auto | commits | prs`) lets the action decide whether to summarize PR titles, descriptions, and labels (default `auto`) or fall back to raw commit messages, supporting squash‑merge and merge‑commit workflows while remaining backward compatible.
+
 ## [v1.1.3] - 2026-11-19
 
 ### Changed
