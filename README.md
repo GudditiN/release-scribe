@@ -93,6 +93,8 @@ Add your API key: **Settings → Secrets → Actions → New secret** → name i
 | `project_context` | no | — | One-liner about your project (improves quality) |
 | `github_token` | no | — | Pass `secrets.GITHUB_TOKEN` to auto-update Release body |
 | `update_release` | no | `false` | Patch the GitHub Release body with generated notes |
+| `source` | no | `auto` | What notes are built from: `auto` \| `commits` \| `prs` — see [Where notes come from](#where-the-notes-come-from) |
+| `audience` | no | `developers` | `developers` (technical) \| `customers` (plain language, skips internal-only changes) |
 | `fallback_providers` | no | — | Backup models tried in order if the primary fails, e.g. `openai:gpt-4o, gemini` |
 | `provider_keys` | no | — | Keys for fallback providers as `provider=key` lines (use secrets) |
 | `custom_instructions` | no | — | Extra instructions for the AI (tone, audience, rules) |
@@ -107,6 +109,37 @@ Add your API key: **Settings → Secrets → Actions → New secret** → name i
 | `readme_file` | no | `README.md` | README path for `update_readme` |
 | `upload_artifact` | no | `false` | Upload the built files as a downloadable workflow artifact |
 | `artifact_name` | no | `release-notes` | Artifact name |
+
+## Where the notes come from
+
+Set `source` to choose what the AI reads:
+
+| `source` | Reads | Best when | Needs |
+|---|---|---|---|
+| `auto` *(default, recommended)* | PR title, description and labels where a commit belongs to a PR; plain commit messages for direct pushes | Most teams — you get PR-quality notes without losing direct commits | `github_token` (without it, falls back to commits) |
+| `prs` | Merged pull requests only; direct pushes are ignored | Teams where *everything* ships through PRs and you want release-note-style output | `github_token` |
+| `commits` | Commit messages only | No PRs, Conventional Commits discipline, or no token available | nothing |
+
+**Which is best?** PRs, in almost every case. A PR title and description explain *what changed and why* in
+the author's own words, while commit messages are often terse ("fix bug", "wip"). `auto` gives you that
+and still covers direct commits, so it is the default. Choose `commits` if your commit messages are already
+well written (e.g. Conventional Commits) or you don't use PRs. Both squash-merge and merge-commit workflows
+are supported.
+
+Audience matters too: `audience: customers` rewrites the notes in plain language, drops internal-only work
+(refactors, tests, CI), and publishes nothing at all if a release has no user-facing changes.
+
+```yaml
+with:
+  source: auto
+  audience: customers
+  github_token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+Before anything is written or sent, the generated text is checked for credential-like content, and release
+notes end with a contributors line when more than one person contributed.
+
+---
 
 ## Optional features
 
