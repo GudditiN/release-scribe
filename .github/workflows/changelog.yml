@@ -1,0 +1,83 @@
+name: Release Changelog
+
+# Runs release-scribe on itself whenever a version tag is pushed.
+#
+# Repo secrets (Settings → Secrets and variables → Actions):
+#   GROQ_API_KEY        – Groq key, primary model             (required)
+#   GEMINI_API_KEY      – Gemini key, backup if Groq fails    (optional)
+#   SLACK_WEBHOOK_URL   – Slack incoming webhook for the channel   (optional)
+# Repo variables (same page, "Variables" tab — all optional):
+#   AI_MODEL            – Groq model override (default: llama-3.3-70b-versatile)
+#   GEMINI_MODEL        – Gemini model override (default: gemini-2.0-flash)
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Existing tag to generate notes for (e.g. v1.1.0)'
+        required: true
+      dry_run:
+        description: 'Print the notes only; write and send nothing'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: changelog-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  changelog:
+    name: Generate changelog
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history + tags are required
+          ref: ${{ github.event.inputs.version || github.ref }}
+
+      - name: Ensure a GitHub Release exists for the tag
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.version || github.ref_name }}
+        run: gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --notes "Generating release notes…"
+
+      - name: Generate changelog (this repo's own action)
+        id: scribe
+        uses: ./
+        with:
+          provider:        groq
+          model:           ${{ vars.AI_MODEL }}
+          api_key:         ${{ secrets.GROQ_API_KEY }}
+          # If Groq is rate-limited or down, fall back to Gemini
+          fallback_providers: gemini${{ vars.GEMINI_MODEL && format(':{0}', vars.GEMINI_MODEL) || '' }}
+          provider_keys: |
+            gemini=${{ secrets.GEMINI_API_KEY }}
+          release_version: ${{ github.event.inputs.version }}
+          project_context: 'Release Scribe: a GitHub Action that writes changelogs and release notes from git commits using any LLM provider'
+          update_release:  'true'
+          github_token:    ${{ secrets.GITHUB_TOKEN }}
+          dry_run:         ${{ github.event.inputs.dry_run || 'false' }}
+          upload_artifact: 'true'
+          # Posts the release summary to your Slack channel (skipped if the secret is empty)
+          slack_mode:        message
+          slack_webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Commit CHANGELOG.md
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          if git diff --staged --quiet; then
+            echo "No changelog changes."
+          else
+            git commit -m "docs: update changelog for ${{ github.event.inputs.version || github.ref_name }}"
+            git pull --rebase origin main   # main may have moved since the tag
+            git push origin HEAD:main
+          fi
