@@ -58,6 +58,8 @@ jobs:
           project_context: 'Your project description here (optional)'
 
           # ── Everything below is optional — delete what you don't need ──
+          # source: auto                  # auto | commits | prs  (auto = PR details + direct commits)
+          # audience: customers           # developers (default) | customers
           # custom_instructions: 'Write for end users. Keep bullets short.'
           # custom_instructions_file: '.github/release-style.md'
           # fallback_providers: 'openai:gpt-4o, gemini'

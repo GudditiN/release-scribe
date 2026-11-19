@@ -86,6 +86,16 @@ inputs:
     required: false
     default: 'false'
 
+  audience:
+    description: 'Who the notes are for: developers (technical, default) | customers (plain language; skips internal-only changes and publishes nothing if a release has no user-facing changes).'
+    required: false
+    default: 'developers'
+
+  source:
+    description: 'What the notes are built from: auto (PR titles/descriptions/labels where available, plain commits otherwise; needs github_token for PRs) | commits (commit messages only) | prs (merged pull requests only).'
+    required: false
+    default: 'auto'
+
   # ── Custom instructions (all optional) ──────────────────────────
   custom_instructions:
     description: 'Optional extra instructions for the AI (tone, audience, wording rules). Inline text.'
@@ -177,6 +187,8 @@ runs:
         INPUT_MODEL: ${{ inputs.model }}
         INPUT_FALLBACK_PROVIDERS: ${{ inputs.fallback_providers }}
         INPUT_PROVIDER_KEYS: ${{ inputs.provider_keys }}
+        INPUT_AUDIENCE: ${{ inputs.audience }}
+        INPUT_SOURCE: ${{ inputs.source }}
         INPUT_FROM_TAG: ${{ inputs.from_tag }}
         INPUT_TO_REF: ${{ inputs.to_ref }}
         INPUT_RELEASE_VERSION: ${{ inputs.release_version }}
