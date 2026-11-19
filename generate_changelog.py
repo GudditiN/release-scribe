@@ -71,7 +71,7 @@ DEFAULT_MODELS = {
     "openai":    "gpt-4o",
     "gemini":    "gemini-2.0-flash",
     "mistral":   "mistral-large-latest",
-    "groq":      "llama-3.3-70b-versatile",
+    "groq":      "openai/gpt-oss-120b",
     "cohere":    "command-r-plus",
 }
 
@@ -271,6 +271,9 @@ def call_groq(system: str, user: str, model: str, max_tokens: int = 4096) -> str
         "https://api.groq.com/openai/v1/chat/completions",
         {"Authorization": f"Bearer {API_KEY}"},
         {"model": model, "max_tokens": max_tokens,
+         # gpt-oss models reason before answering; keep it short so the
+         # reasoning doesn't consume the output-token budget.
+         **({"reasoning_effort": "low"} if model.startswith("openai/gpt-oss") else {}),
          "messages": [{"role": "system", "content": system},
                       {"role": "user", "content": user}]}
     )

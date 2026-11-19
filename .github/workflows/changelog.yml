@@ -3,12 +3,10 @@ name: Release Changelog
 # Runs release-scribe on itself whenever a version tag is pushed.
 #
 # Repo secrets (Settings → Secrets and variables → Actions):
-#   GROQ_API_KEY        – Groq key, primary model             (required)
-#   GEMINI_API_KEY      – Gemini key, backup if Groq fails    (optional)
+#   GROQ_API_KEY        – Groq API key                         (required)
 #   SLACK_WEBHOOK_URL   – Slack incoming webhook for the channel   (optional)
 # Repo variables (same page, "Variables" tab — all optional):
-#   AI_MODEL            – Groq model override (default: llama-3.3-70b-versatile)
-#   GEMINI_MODEL        – Gemini model override (default: gemini-2.0-flash)
+#   AI_MODEL            – Groq model override (default: openai/gpt-oss-120b)
 
 on:
   push:
@@ -54,10 +52,6 @@ jobs:
           provider:        groq
           model:           ${{ vars.AI_MODEL }}
           api_key:         ${{ secrets.GROQ_API_KEY }}
-          # If Groq is rate-limited or down, fall back to Gemini
-          fallback_providers: gemini${{ vars.GEMINI_MODEL && format(':{0}', vars.GEMINI_MODEL) || '' }}
-          provider_keys: |
-            gemini=${{ secrets.GEMINI_API_KEY }}
           release_version: ${{ github.event.inputs.version }}
           project_context: 'Release Scribe: a GitHub Action that writes changelogs and release notes from git commits using any LLM provider'
           update_release:  'true'

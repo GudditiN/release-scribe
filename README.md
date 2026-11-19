@@ -71,7 +71,7 @@ Add your API key: **Settings → Secrets → Actions → New secret** → name i
 | **OpenAI** (GPT) | `openai` | `gpt-4o` | [platform.openai.com](https://platform.openai.com) |
 | **Google** (Gemini) | `gemini` | `gemini-2.0-flash` | [aistudio.google.com](https://aistudio.google.com) |
 | **Mistral** | `mistral` | `mistral-large-latest` | [console.mistral.ai](https://console.mistral.ai) |
-| **Groq** | `groq` | `llama-3.3-70b-versatile` | [console.groq.com](https://console.groq.com) |
+| **Groq** | `groq` | `openai/gpt-oss-120b` | [console.groq.com](https://console.groq.com) |
 | **Cohere** | `cohere` | `command-r-plus` | [dashboard.cohere.com](https://dashboard.cohere.com) |
 
 ---
