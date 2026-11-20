@@ -58,6 +58,7 @@ SOURCE                   = env("SOURCE", "auto").lower()              # auto | c
 FALLBACK_PROVIDERS       = env("FALLBACK_PROVIDERS")
 PROVIDER_KEYS            = env("PROVIDER_KEYS")
 SLACK_MODE               = env("SLACK_MODE", "auto").lower()
+SLACK_STYLE              = env("SLACK_STYLE", "auto").lower()      # auto | modern | classic
 SLACK_BOT_TOKEN          = env("SLACK_BOT_TOKEN")
 SLACK_CHANNEL_ID         = env("SLACK_CHANNEL_ID")
 UPDATE_README            = env("UPDATE_README", "false").lower() == "true"
@@ -118,21 +119,50 @@ def run_git(*args) -> str:
     return result.stdout.strip()
 
 
-def latest_tag() -> str:
-    """Most recent tag before TO_REF, ignoring tags that point at TO_REF itself.
+SEMVER_TAG = re.compile(r"^v?\d+\.\d+\.\d+([-+].+)?$")
 
-    On a tag push HEAD *is* the new tag, so a plain `git describe` would return
-    the tag being released and the commit range would be empty.
+
+def _version_key(tag: str) -> tuple:
+    nums = re.findall(r"\d+", re.split(r"[-+]", tag.lstrip("v"), 1)[0])[:3]
+    return tuple(int(n) for n in nums)
+
+
+def latest_tag() -> str:
+    """The release tag just before TO_REF.
+
+    - Ignores tags pointing at TO_REF itself (on a tag push HEAD *is* the new tag).
+    - Prefers real versions (1.2.3) over moving tags such as `v1`, which often sit on the
+      same commit as a real release and would otherwise win git's tie-break.
+    - Picks the nearest ancestor; ties go to the highest version.
     """
-    args = ["describe", "--tags", "--abbrev=0"]
-    for t in run_git("tag", "--points-at", TO_REF).splitlines():
-        if t.strip():
-            args.append(f"--exclude={t.strip()}")
-    tag = run_git(*args, TO_REF)
-    if not tag:
-        # No earlier tags — use the first commit
-        tag = run_git("rev-list", "--max-parents=0", TO_REF).splitlines()[0]
-    return tag
+    here = set(run_git("tag", "--points-at", TO_REF).split())
+    merged = [t for t in run_git("tag", "--merged", TO_REF).split() if t not in here]
+    candidates = [t for t in merged if SEMVER_TAG.match(t)] or merged
+    if candidates:
+        def rank(t):
+            dist = run_git("rev-list", "--count", f"{t}..{TO_REF}")
+            return (int(dist or 0), tuple(-n for n in _version_key(t)))
+        return min(candidates, key=rank)
+    # No earlier tags — use the first commit
+    return run_git("rev-list", "--max-parents=0", TO_REF).splitlines()[0]
+
+
+def diff_summary(from_ref: str, to_ref: str, limit: int = 25) -> str:
+    """Files touched in the range — ground truth that keeps the notes honest."""
+    rows = []
+    for line in run_git("diff", "--numstat", f"{from_ref}..{to_ref}").splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) != 3 or parts[2] in ("CHANGELOG.md", "RELEASE_NOTES.md", "release-data.json"):
+            continue
+        add, dele, path = parts
+        n = (int(add) if add.isdigit() else 0) + (int(dele) if dele.isdigit() else 0)
+        rows.append((n, path, add, dele))
+    if not rows:
+        return ""
+    rows.sort(reverse=True)
+    lines = [f"- {path} (+{add}/-{dele})" for _, path, add, dele in rows[:limit]]
+    more = f"\n- …and {len(rows) - limit} more files" if len(rows) > limit else ""
+    return f"{len(rows)} file(s) changed:\n" + "\n".join(lines) + more
 
 
 def resolve_from_tag() -> str:
@@ -408,9 +438,10 @@ SYSTEM_PROMPT = textwrap.dedent("""
     - ALWAYS group similar commits into a single bullet. For example, multiple "Adaptive X screen"
       commits should become one bullet: "Added adaptive UI support across Label, Project, Task, and About screens".
     - Expand terse commit messages into meaningful descriptions that explain the user impact.
-    - Aim for 5-15 bullets total — quality over quantity.
+    - Use only as many bullets as the changes justify (a release of 1-3 commits needs 1-3 bullets, up to 15 for large ones). Never pad.
     - Always complete every bullet point fully — never truncate mid-sentence.
-    - Only state what the commits support. Never invent features, removals, or benefits
+    - Only state what the commits, PR text, or the files-changed list support. Never invent features, fixes,
+      typos, screenshots, numbers, removals, or benefits
       (e.g. do not claim something was removed from the project unless a commit says so).
     - Output ONLY the markdown content requested. No preamble, no meta-commentary.
     - Never wrap output in code fences.
@@ -635,22 +666,58 @@ def check_output(name: str, text: str):
 
 
 def contributors_line(commits: list[Commit]) -> str:
-    names = []
+    """Contributors as @handles where we know them (GitHub renders them as profile links)."""
+    seen, names = set(), []
     for c in commits:
-        n = c.author.strip()
-        if n and "[bot]" not in n.lower() and n not in names:
-            names.append(n)
+        pr = PR_INFO.get(c.pr_number) if c.pr_number else None
+        who = f"@{pr['author']}" if pr and pr.get("author") else c.author.strip()
+        if who and "[bot]" not in who.lower() and who.lower() not in seen:
+            seen.add(who.lower())
+            names.append(who)
     if len(names) < 2:
         return ""
     shown = ", ".join(names[:10]) + (f" and {len(names) - 10} more" if len(names) > 10 else "")
     return f"👏 **Contributors:** {shown}"
 
 
-def build_prompt(commit_list: str, commit_count: int, version: str, from_tag: str, style_instr: str) -> tuple[str, str]:
+def server_url() -> str:
+    return os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+
+
+def pull_request_section(limit: int = 12) -> str:
+    """Merged PRs straight from GitHub — real links and authors, nothing generated."""
+    if not PR_INFO or not GITHUB_REPO:
+        return ""
+    rows = []
+    for n in sorted(PR_INFO):
+        info = PR_INFO[n]
+        title = re.sub(r"\s+", " ", info["title"]).strip()[:90]
+        by = f" — @{info['author']}" if info.get("author") else ""
+        rows.append(f"- [#{n}]({server_url()}/{GITHUB_REPO}/pull/{n}) {title}{by}")
+    more = f"\n- …and {len(rows) - limit} more" if len(rows) > limit else ""
+    return "### 🔗 Pull requests\n" + "\n".join(rows[:limit]) + more
+
+
+def finalize_notes(notes: str, commits: list[Commit], from_tag: str, version: str) -> str:
+    """Deterministic, accurate parts appended to the model's text: PR list, contributors,
+    and a real clickable changelog link (replacing the model's plain-text one)."""
+    notes = "\n".join(l for l in notes.splitlines()
+                      if not re.match(r"^\s*\**full changelog\**\s*:", l, re.IGNORECASE)).rstrip()
+    extras = [x for x in (pull_request_section(), contributors_line(commits)) if x]
+    if GITHUB_REPO:
+        extras.append(f"**Full changelog**: [{from_tag}...{version}]"
+                      f"({server_url()}/{GITHUB_REPO}/compare/{from_tag}...{version})")
+    return notes + "".join(f"\n\n{x}" for x in extras)
+
+
+def build_prompt(commit_list: str, commit_count: int, version: str, from_tag: str, style_instr: str,
+                 diff_text: str = "") -> tuple[str, str]:
     ctx = f"\nProject context: {PROJECT_CONTEXT}" if PROJECT_CONTEXT else ""
     ctx += "\n" + AUDIENCE_INSTRUCTIONS.get(AUDIENCE, AUDIENCE_INSTRUCTIONS["developers"])
 
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if diff_text:
+        commit_list += "\n\nFiles changed (ground truth for what was touched — do not claim changes these files don't support):\n" + diff_text
 
     changelog_prompt = textwrap.dedent(f"""
         Generate a CHANGELOG.md entry for version {version} (released {today}).
@@ -662,7 +729,8 @@ def build_prompt(commit_list: str, commit_count: int, version: str, from_tag: st
         Important:
         - Group related commits into single meaningful bullets (e.g. multiple screen/UI commits → one bullet).
         - Expand terse commit messages to explain what changed and why it matters.
-        - Aim for 5-15 total bullets. Skip trivial changes entirely.
+        - Use only as many bullets as the changes justify (up to 15). A release with few commits has few bullets — never pad.
+        - If details are thin, describe the change plainly (e.g. "Updated the README and release workflow") instead of elaborating.
         - Every bullet must be a complete sentence — never cut off mid-word or mid-sentence.
 
         The entry must begin with exactly:
@@ -686,7 +754,7 @@ def build_prompt(commit_list: str, commit_count: int, version: str, from_tag: st
             ### 🐛 Fixes
             ### 🔒 Security
             ### ⚠️ Breaking changes
-        - At most 8 bullets in total — group similar commits into one bullet.
+        - At most 8 bullets, fewer for small releases — one bullet per distinct change, never padded.
         - Start each bullet with a **bold feature name**, then a colon and one complete
           sentence explaining the user impact, not just a commit title.
         - End with: **Full changelog**: `{from_tag}...{version}`
@@ -765,6 +833,35 @@ def update_readme(path: str, version: str, release_notes: str):
     print(f"  Updated: {path}")
 
 
+def release_kind(from_tag: str, version: str) -> tuple:
+    """(emoji, label) from the semver jump between two tags, or ('', '') if unclear."""
+    if "-" in version.lstrip("v"):
+        return "🧪", "Pre-release"
+    a, b = _version_key(from_tag), _version_key(version)
+    if len(a) < 3 or len(b) < 3 or a == b:
+        return "", ""
+    if b[0] != a[0]:
+        return "🚀", "Major release"
+    if b[1] != a[1]:
+        return "✨", "Minor release"
+    return "🩹", "Patch release"
+
+
+def diff_totals(from_ref: str, to_ref: str) -> str:
+    """'8 files · +240 −31' for the range (generated files excluded), or ''."""
+    files = adds = dels = 0
+    for line in run_git("diff", "--numstat", f"{from_ref}..{to_ref}").splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) != 3 or parts[2] in ("CHANGELOG.md", "RELEASE_NOTES.md", "release-data.json"):
+            continue
+        files += 1
+        adds += int(parts[0]) if parts[0].isdigit() else 0
+        dels += int(parts[1]) if parts[1].isdigit() else 0
+    if not files:
+        return ""
+    return f"{files} file{'s' if files != 1 else ''} · +{adds} −{dels}"
+
+
 def slack_context(version: str, from_tag: str, count: int) -> dict:
     """Metadata shown alongside the notes in Slack."""
     server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
@@ -773,6 +870,8 @@ def slack_context(version: str, from_tag: str, count: int) -> dict:
     return {
         "repo": repo or "this project",
         "version": version, "from_tag": from_tag, "count": count,
+        "kind": release_kind(from_tag, version),
+        "stats": diff_totals(from_tag, TO_REF),
         "model": f"{PROVIDER} / {MODEL or DEFAULT_MODELS.get(PROVIDER, '')}",
         "actor": os.environ.get("GITHUB_ACTOR", ""),
         "release_url": f"{server}/{repo}/releases/tag/{version}" if repo else "",
@@ -781,14 +880,34 @@ def slack_context(version: str, from_tag: str, count: int) -> dict:
     }
 
 
+def _esc(text: str) -> str:
+    """Slack control characters. Untrusted text must never reach Slack unescaped:
+    `<!channel>`, `<!here>`, `<@U…>` in a commit message would otherwise notify people."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def mk(text: str) -> dict:
+    """mrkdwn text object with automatic parsing off, so '@here' / '#channel' stay plain text."""
+    return {"type": "mrkdwn", "text": text, "verbatim": True}
+
+
+_MD_LINK = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)")
+
+
 def md_to_mrkdwn(md: str) -> str:
-    """Convert the Markdown we generate into Slack mrkdwn."""
+    """Convert the Markdown we generate into safe Slack mrkdwn."""
     out = []
     for line in md.splitlines():
         # drop the trailing "Full changelog" line — Slack gets a Compare button instead
         if re.match(r"^\s*\**full changelog\**\s*:", line, re.IGNORECASE):
             continue
-        line = re.sub(r"\[([^\]]+)\]\((https?://[^)\s]+)\)", r"<\2|\1>", line)   # links
+        pieces, pos = [], 0
+        for m in _MD_LINK.finditer(line):                       # links: escape text, keep our <url|label>
+            pieces.append(_esc(line[pos:m.start()]))
+            pieces.append(f"<{_esc(m.group(2))}|{_esc(m.group(1))}>")
+            pos = m.end()
+        pieces.append(_esc(line[pos:]))
+        line = "".join(pieces)
         line = re.sub(r"\*\*(.+?)\*\*", r"*\1*", line)                             # bold
         line = re.sub(r"^\s*[-*]\s+", "•  ", line)                                    # bullets
         m = re.match(r"^#{1,6}\s*(.+)$", line)                                        # headings
@@ -825,11 +944,11 @@ def slack_summary(ctx: dict, release_notes: str, limit: int = 8000) -> tuple[str
     blocks = [
         {"type": "header", "text": {"type": "plain_text",
                                     "text": f"🚀 {ctx['repo']} released"[:150], "emoji": True}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": headline}},
+        {"type": "section", "text": mk(headline)},
         {"type": "divider"},
     ]
     for part in _chunk(notes):
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": part}})
+        blocks.append({"type": "section", "text": mk(part)})
 
     buttons = []
     if ctx["release_url"]:
@@ -848,8 +967,7 @@ def slack_summary(ctx: dict, release_notes: str, limit: int = 8000) -> tuple[str
     if ctx["actor"]:
         meta.append(f"by {ctx['actor']}")
     meta.append(datetime.now(timezone.utc).strftime("%b %d, %Y"))
-    blocks.append({"type": "context", "elements": [
-        {"type": "mrkdwn", "text": "   •   ".join(meta)}]})
+    blocks.append({"type": "context", "elements": [mk("   •   ".join(_esc(m) for m in meta))]})
 
     return f"{ctx['repo']} {ctx['version']} released", blocks[:50]
 
@@ -870,6 +988,224 @@ def _slack_api(method: str, token: str, *, form: dict = None, body: dict = None)
     if not out.get("ok"):
         raise RuntimeError(f"Slack {method}: {out.get('error', out)}")
     return out
+
+
+SLACK_GREEN, SLACK_RED = "#2EB67D", "#E01E5A"
+
+_INLINE = re.compile(
+    r"\*\*(?P<b>.+?)\*\*|`(?P<c>[^`]+)`|\[(?P<lt>[^\]]+)\]\((?P<lu>https?://[^)\s]+)\)"
+    r"|(?<![\w*])_(?P<i1>[^_]+)_(?![\w*])")
+
+
+def inline_elements(text: str) -> list:
+    """Markdown inline -> Slack rich_text elements (bold, code, italic, links)."""
+    els, pos = [], 0
+    for m in _INLINE.finditer(text):
+        if m.start() > pos:
+            els.append({"type": "text", "text": _defang(text[pos:m.start()])})
+        if m.group("b"):
+            els.append({"type": "text", "text": _defang(m.group("b")), "style": {"bold": True}})
+        elif m.group("c"):
+            els.append({"type": "text", "text": _defang(m.group("c")), "style": {"code": True}})
+        elif m.group("lt"):
+            els.append({"type": "link", "url": m.group("lu"), "text": _defang(m.group("lt"))})
+        else:
+            els.append({"type": "text", "text": _defang(m.group("i1")), "style": {"italic": True}})
+        pos = m.end()
+    if pos < len(text):
+        els.append({"type": "text", "text": _defang(text[pos:])})
+    return els or [{"type": "text", "text": " "}]
+
+
+def parse_notes(md: str) -> list:
+    """Release-notes markdown -> [("h", text) | ("p", text) | ("ul", [items])]."""
+    out, para, items = [], [], []
+
+    def flush():
+        nonlocal para, items
+        if para:
+            out.append(("p", " ".join(para)))
+        if items:
+            out.append(("ul", items))
+        para, items = [], []
+
+    for raw in md.splitlines():
+        line = raw.rstrip()
+        if re.match(r"^\s*\**full changelog\**\s*:", line, re.IGNORECASE):
+            continue
+        h = re.match(r"^#{1,6}\s*(.+)$", line)
+        b = re.match(r"^\s*[-*•]\s+(.+)$", line)
+        if h:
+            flush(); out.append(("h", h.group(1).strip().strip("*")))
+        elif b:
+            if para:
+                out.append(("p", " ".join(para))); para = []
+            items.append(b.group(1).strip())
+        elif not line.strip():
+            flush()
+        elif items and raw.startswith((" ", "\t")):
+            items[-1] += " " + line.strip()          # wrapped bullet
+        else:
+            if items:
+                out.append(("ul", items)); items = []
+            para.append(line.strip())
+    flush()
+    return out
+
+
+def _rich_body(notes: str) -> list:
+    """Body blocks using real bullet lists (proper indentation when text wraps)."""
+    blocks = []
+    for kind, val in parse_notes(notes):
+        if kind == "h":
+            blocks.append({"type": "section", "text": mk(f"*{_esc(val)}*")})
+        elif kind == "p":
+            blocks.append({"type": "section", "text": mk(md_to_mrkdwn(val)[:2900])})
+        else:
+            blocks.append({"type": "rich_text", "elements": [{
+                "type": "rich_text_list", "style": "bullet",
+                "elements": [{"type": "rich_text_section", "elements": inline_elements(i)}
+                             for i in val[:25]]}]})
+    return blocks
+
+
+def _mrkdwn_body(notes: str) -> list:
+    return [{"type": "section", "text": mk(part)} for part in _chunk(md_to_mrkdwn(notes))]
+
+
+def classic_payloads(ctx: dict, notes: str) -> list:
+    """Coloured-card layouts (legacy attachment bar). Later ones are simpler fallbacks.
+
+    Card layout: a bold headline line, then the details inside a coloured side bar.
+    The bar and headline make each release a distinct block even when Slack groups
+    consecutive messages from the same app into one stream.
+    """
+    name = ctx["repo"].split("/")[-1]
+    ver = ctx["version"]
+    link = (f"<{_esc(ctx['release_url'])}|{_esc(name)} {_esc(ver)}>" if ctx["release_url"]
+            else f"{_esc(name)} {_esc(ver)}")
+    headline = f"🚀 *{link}* is out"
+    n = ctx["count"]
+    today = datetime.now(timezone.utc).strftime("%b %d, %Y")
+    breaking = bool(re.search(r"breaking", notes, re.IGNORECASE))
+
+    top = [{"type": "context", "elements": [mk("   •   ".join(x for x in (
+            ctx["kind"][1],
+            f"`{_esc(ctx['from_tag'])}` → `{_esc(ver)}`",
+            f"{n} commit{'s' if n != 1 else ''}",
+            ctx["stats"], today) if x))]}]
+    buttons = []
+    if ctx["release_url"]:
+        buttons.append(("📄 Release notes", ctx["release_url"], "primary"))
+    if ctx["compare_url"]:
+        buttons.append(("🔍 View changes", ctx["compare_url"], None))
+    if ctx["run_url"]:
+        buttons.append(("⚙️ Workflow run", ctx["run_url"], None))
+    bottom = []
+    if buttons:
+        bottom.append({"type": "actions", "elements": [
+            {"type": "button", "text": {"type": "plain_text", "text": t, "emoji": True},
+             "url": u, "action_id": f"link_{i}", **({"style": st} if st else {})}
+            for i, (t, u, st) in enumerate(buttons)]})
+    meta = [f"✍️ {ctx['model']}"] + ([f"by {ctx['actor']}"] if ctx["actor"] else [])
+    bottom.append({"type": "context", "elements": [mk("   •   ".join(_esc(m) for m in meta))]})
+
+    color = SLACK_RED if breaking else SLACK_GREEN
+    fallback = f"{ctx['repo']} {ver} released"
+
+    def card(body):
+        return {"text": headline, "attachments": [
+            {"color": color, "fallback": fallback, "blocks": (top + body + bottom)[:50]}]}
+
+    _, flat = slack_summary(ctx, notes)
+    return [card(_rich_body(notes)),          # 1. best: card + real bullet lists
+            card(_mrkdwn_body(notes)),        # 2. card + plain mrkdwn
+            {"text": fallback, "blocks": flat}]  # 3. flat blocks
+
+
+_ZWSP = "\u200b"
+
+
+def _defang(text: str) -> str:
+    """Neutralise mention syntax in text that goes into a markdown block: `<!channel>`,
+    `<@U…>` and `@here`/`@channel`/`@everyone` are broken with an invisible character."""
+    text = text.replace("<!", "<" + _ZWSP + "!").replace("<@", "<" + _ZWSP + "@")
+    return re.sub(r"@(here|channel|everyone)(?![A-Za-z0-9])", "@" + _ZWSP + r"\1", text, flags=re.IGNORECASE)
+
+
+def _first_sentence(text: str, limit: int = 200) -> str:
+    text = re.sub(r"\s+", " ", re.sub(r"[*`_]", "", text)).strip()
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    end = max(cut.rfind(". "), cut.rfind("! "))
+    return cut[:end + 1] if end > 60 else cut.rsplit(" ", 1)[0] + "…"
+
+
+def modern_payload(ctx: dict, notes: str) -> dict:
+    """Card header + markdown block + context footer (Slack's newer blocks).
+
+    card      title, subtitle, one-line summary, link buttons
+    markdown  the release notes as written (headings, bullets, tables, code all render)
+    context   model / actor
+    """
+    name = ctx["repo"].split("/")[-1]
+    ver = ctx["version"]
+    n = ctx["count"]
+    today = datetime.now(timezone.utc).strftime("%b %d, %Y")
+
+    parts = parse_notes(notes)
+    summary, rest = "", notes
+    if parts and parts[0][0] == "p":              # lead paragraph -> card body, not repeated below
+        summary = _first_sentence(parts[0][1])
+        blocks_ = re.split(r"\n\s*\n", notes.strip(), maxsplit=1)
+        rest = blocks_[1] if len(blocks_) > 1 else ""
+    md_lines = [l for l in rest.splitlines()
+                if not re.match(r"^\s*\**full changelog\**\s*:", l, re.IGNORECASE)]
+    md_text = _defang(re.sub(r"\n{3,}", "\n\n", "\n".join(md_lines)).strip())
+    if len(md_text) > 11500:
+        md_text = md_text[:11500].rsplit("\n", 1)[0] + "\n…"
+
+    buttons = []
+    if ctx["release_url"]:
+        buttons.append(("📄 Release notes", ctx["release_url"], "primary"))
+    if ctx["compare_url"]:
+        buttons.append(("🔍 View changes", ctx["compare_url"], None))
+    if ctx["run_url"]:
+        buttons.append(("⚙️ Workflow run", ctx["run_url"], None))
+
+    card = {"type": "card",
+            "title": mk(f"{ctx['kind'][0] or '🚀'} {_esc(name)} {_esc(ver)}"[:150]),
+            "subtitle": mk(" · ".join(x for x in (
+                ctx["kind"][1],
+                f"`{_esc(ctx['from_tag'])}` → `{_esc(ver)}`",
+                f"{n} commit{'s' if n != 1 else ''}",
+                ctx["stats"], today) if x)[:150])}
+    if summary:
+        card["body"] = mk(_esc(summary))
+    if buttons:
+        card["actions"] = [
+            {"type": "button", "text": {"type": "plain_text", "text": t},
+             "url": u, "action_id": f"link_{i}", **({"style": st} if st else {})}
+            for i, (t, u, st) in enumerate(buttons[:3])]
+
+    meta = [f"✍️ {ctx['model']}"] + ([f"by {ctx['actor']}"] if ctx["actor"] else [])
+    blocks = [card]
+    if md_text:
+        blocks.append({"type": "markdown", "text": md_text})
+    blocks.append({"type": "context", "elements": [mk(" · ".join(_esc(m) for m in meta))]})
+    text = f"🚀 {_esc(name)} {_esc(ver)} is out" + (f" — {_esc(summary)}" if summary else "")
+    return {"text": text[:300], "blocks": blocks}
+
+
+def slack_payloads(ctx: dict, notes: str) -> list:
+    """Layouts to try in order. `auto` tries the modern card layout first and falls back
+    to the classic coloured-card layouts if Slack rejects it; `modern` / `classic` force one."""
+    classic = classic_payloads(ctx, notes)
+    if SLACK_STYLE == "classic":
+        return classic
+    modern = modern_payload(ctx, notes)
+    return [modern] if SLACK_STYLE == "modern" else [modern] + classic
 
 
 def slack_upload_files(paths: list, ctx: dict, release_notes: str, brief: bool = False):
@@ -933,15 +1269,25 @@ def send_slack(version: str, from_tag: str, count: int, release_notes: str, file
         return
     ctx = slack_context(version, from_tag, count)
     if mode in ("message", "both"):
-        text, blocks = slack_summary(ctx, release_notes)
-        req = urllib.request.Request(
-            SLACK_WEBHOOK_URL, data=json.dumps({"text": text, "blocks": blocks}).encode(),
-            headers={"Content-Type": "application/json", "User-Agent": "release-scribe/1.0"})
-        try:
-            with urllib.request.urlopen(req, context=_SSL_CONTEXT, timeout=20):
-                print("  Slack summary message sent.")
-        except Exception as e:
-            print(f"  ⚠️  Slack summary message failed: {e}")
+        payloads = slack_payloads(ctx, release_notes)
+        for i, payload in enumerate(payloads):
+            req = urllib.request.Request(
+                SLACK_WEBHOOK_URL, data=json.dumps(payload).encode(),
+                headers={"Content-Type": "application/json", "User-Agent": "release-scribe/1.0"})
+            try:
+                with urllib.request.urlopen(req, context=_SSL_CONTEXT, timeout=20):
+                    print("  Slack summary message sent." + ("" if i == 0 else f" (layout fallback {i})"))
+                break
+            except urllib.error.HTTPError as e:
+                detail = e.read().decode(errors="ignore")[:120]
+                if e.code == 400 and i < len(payloads) - 1:
+                    print(f"  Slack rejected layout {i + 1} ({detail}); trying a simpler one…")
+                    continue
+                print(f"  ⚠️  Slack summary message failed: HTTP {e.code} {detail}")
+                break
+            except Exception as e:
+                print(f"  ⚠️  Slack summary message failed: {e}")
+                break
     if mode in ("files", "both"):
         try:
             slack_upload_files(files, ctx, release_notes, brief=(mode == "both"))
@@ -1069,7 +1415,8 @@ def main():
     meaningful = apply_source(commits, meaningful)
     commit_list = condense_commits(meaningful, input_budget())
     changelog_prompt, release_prompt = build_prompt(
-        commit_list, len(meaningful), version, from_tag, style_instr)
+        commit_list, len(meaningful), version, from_tag, style_instr,
+        diff_summary(from_tag, TO_REF))
 
     # Generate changelog entry
     print("\n📝  Generating CHANGELOG.md entry…")
@@ -1094,9 +1441,8 @@ def main():
     # Safety check before anything is written or sent
     check_output("changelog entry", changelog_entry)
     check_output("release notes", release_notes)
-    thanks = contributors_line(meaningful)
-    if thanks:
-        release_notes += f"\n\n{thanks}"
+    release_notes = finalize_notes(release_notes, meaningful, from_tag, version)
+    check_output("release notes", release_notes)
 
     if DRY_RUN:
         print("\n🧪  Dry run — no files written, nothing sent.\n")

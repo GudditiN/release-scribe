@@ -125,6 +125,7 @@ Secrets are never printed, and the generated text is checked for credential-like
 | `max_input_tokens` | no | auto | Cap commit tokens per LLM call; bigger histories are summarised in chunks |
 | `dry_run` | no | `false` | Print the notes only — no files written, nothing sent |
 | `slack_mode` | no | `auto` | `message` \| `files` \| `both` — see [Slack](#slack-optional) |
+| `slack_style` | no | `auto` | Slack layout: `auto` (modern card, falls back automatically) \| `modern` \| `classic` |
 | `slack_webhook_url` | no | — | Incoming webhook for the summary message |
 | `slack_bot_token` | no | — | Bot token (`files:write`) for uploading the built files |
 | `slack_channel_id` | no | — | Channel ID (e.g. `C0123456789`) for file uploads |
@@ -159,8 +160,13 @@ with:
   github_token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-Before anything is written or sent, the generated text is checked for credential-like content, and release
-notes end with a contributors line when more than one person contributed.
+Release notes are finished off with parts that come straight from GitHub, so they are always accurate and
+never invented: a **Pull requests** list (links and authors), a **Contributors** line with `@handles`
+(GitHub shows them as profile links, bots excluded), and a clickable **Full changelog** compare link.
+The Slack card also shows a release-type badge (Major / Minor / Patch / Pre-release) and how many files
+and lines changed.
+
+Before anything is written or sent, the generated text is checked for credential-like content.
 
 ---
 
@@ -221,6 +227,8 @@ with:
 ```
 
 A Slack problem never fails your release — it logs a warning instead.
+
+**Message layout (`slack_style`).** The default `auto` sends a modern card — title, previous tag → new tag, commit count, one-line summary and link buttons — followed by the full notes as formatted Markdown. If your Slack workspace rejects those newer blocks, it automatically falls back to a classic coloured card with bullet lists, then to a plain layout. Use `classic` or `modern` to force one. Text from commits and PRs is escaped, so a stray `@channel` or `<!here>` in a commit message can never ping your workspace.
 
 #### Set up the Slack webhook (summary message) — about 2 minutes
 

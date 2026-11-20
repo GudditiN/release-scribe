@@ -123,6 +123,11 @@ inputs:
     required: false
     default: 'auto'
 
+  slack_style:
+    description: 'Slack message layout: auto (modern card + markdown, falling back to classic if Slack rejects it) | modern | classic (coloured card with bullet lists).'
+    required: false
+    default: 'auto'
+
   slack_webhook_url:
     description: 'Slack incoming-webhook URL. Posts a message with tag details and links (webhooks cannot attach files; use slack_bot_token for that). Store as a secret.'
     required: false
@@ -204,6 +209,7 @@ runs:
         INPUT_MAX_INPUT_TOKENS: ${{ inputs.max_input_tokens }}
         INPUT_DRY_RUN: ${{ inputs.dry_run }}
         INPUT_SLACK_MODE: ${{ inputs.slack_mode }}
+        INPUT_SLACK_STYLE: ${{ inputs.slack_style }}
         INPUT_SLACK_WEBHOOK_URL: ${{ inputs.slack_webhook_url }}
         INPUT_SLACK_BOT_TOKEN: ${{ inputs.slack_bot_token }}
         INPUT_SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
