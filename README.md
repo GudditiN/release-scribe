@@ -424,6 +424,11 @@ Example `.github/release-style.md`:
 | `CHANGELOG.md` commit fails to push | `permissions: contents: write` is missing, or branch protection blocks the bot — push to a PR branch instead |
 | Slack posts nothing | See [Slack troubleshooting](#set-up-the-slack-webhook-summary-message--about-2-minutes). Slack errors only log warnings |
 
+## Sample Output
+
+<img width="1010" height="562" alt="image" src="https://github.com/user-attachments/assets/8a62adef-2cb7-4587-b33f-504cbb9d535b" />
+
+
 ---
 
 ## License
