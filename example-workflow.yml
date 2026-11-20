@@ -32,7 +32,8 @@ on:
         options: [keepachangelog, conventional, narrative]
 
 permissions:
-  contents: write    # needed to push CHANGELOG.md and update releases
+  contents: write         # push CHANGELOG.md and update releases
+  pull-requests: read     # lets source: auto read PR descriptions
 
 jobs:
   changelog:
@@ -47,7 +48,7 @@ jobs:
 
       - name: Generate changelog
         id: changelog
-        uses: GudditiN/release-scribe@v1.0.2
+        uses: GudditiN/release-scribe@v1
         with:
           provider:       ${{ github.event.inputs.provider || vars.AI_PROVIDER || 'anthropic' }}
           api_key:        ${{ secrets.AI_API_KEY }}
@@ -116,7 +117,7 @@ jobs:
 #       # 2. Generate changelog (auto-updates the release body too)
 #       - name: Generate changelog
 #         id: cl
-#         uses: GudditiN/release-scribe@v1.0.2
+#         uses: GudditiN/release-scribe@v1
 #         with:
 #           api_key:        ${{ secrets.AI_API_KEY }}
 #           update_release: 'true'
