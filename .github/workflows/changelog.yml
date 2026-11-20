@@ -23,6 +23,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: read   # lets source: auto read PR descriptions on private repos
 
 concurrency:
   group: changelog-${{ github.ref }}
