@@ -1,5 +1,7 @@
 # Changelog
 
+All notable changes to this project will be documented in this file.
+
 ## [v1.1.5] - 2026-11-20
 
 ### Added
@@ -19,6 +21,3 @@
 
 ### Removed
 - Removed Gemini from the release workflow, simplifying the action’s supported LLM providers.
-
-All notable changes to this project will be documented in this file.
-

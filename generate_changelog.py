@@ -725,18 +725,16 @@ def prepend_changelog(path: str, new_entry: str):
     if not existing:
         existing = "# Changelog\n\nAll notable changes to this project will be documented in this file.\n\n"
 
-    # Insert the new entry after the top-level heading
+    # Insert the new entry above the newest existing release section (the first "## "),
+    # so the title and intro text stay at the top. With no releases yet, append at the end.
     lines = existing.split("\n")
-    insert_at = 0
-    for i, line in enumerate(lines):
-        if line.startswith("# "):
-            insert_at = i + 1
-            # skip blank lines after heading
-            while insert_at < len(lines) and not lines[insert_at].strip():
-                insert_at += 1
-            break
-
-    lines.insert(insert_at, new_entry + "\n")
+    insert_at = next((i for i, line in enumerate(lines) if line.startswith("## ")), None)
+    if insert_at is None:
+        while lines and not lines[-1].strip():
+            lines.pop()
+        lines += ["", new_entry + "\n"]
+    else:
+        lines.insert(insert_at, new_entry + "\n")
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
