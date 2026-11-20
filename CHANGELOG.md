@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.1.6] - 2026-11-20
+
+### Changed
+- Improved the changelog generation logic and updated the GitHub Actions workflow to correctly tag releases, ensuring that version tags are created automatically during the release process.
+
 ## [v1.1.5] - 2026-11-20
 
 ### Added
