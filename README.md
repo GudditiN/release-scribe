@@ -34,7 +34,8 @@ on:
     tags: ['v*']
 
 permissions:
-  contents: write
+  contents: write         # push CHANGELOG.md and update the Release
+  pull-requests: read     # let source: auto read PR titles/descriptions
 
 jobs:
   changelog:
@@ -42,9 +43,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # required — needs full git history
+          fetch-depth: 0   # required — needs full git history and tags
 
-      - uses: GudditiN/release-scribe@v1.0.3
+      - uses: GudditiN/release-scribe@v1
         with:
           api_key:        ${{ secrets.AI_API_KEY }}
           update_release: 'true'
@@ -54,12 +55,34 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md RELEASE_NOTES.md
+          git add CHANGELOG.md
           git diff --staged --quiet || git commit -m "docs: update changelog"
           git push origin HEAD:main
 ```
 
-Add your API key: **Settings → Secrets → Actions → New secret** → name it `AI_API_KEY`.
+1. Add your LLM key: **Settings → Secrets and variables → Actions → New repository secret** → name it `AI_API_KEY`.
+2. Push a tag (`git tag v1.0.0 && git push origin v1.0.0`) and watch the **Actions** tab.
+
+> **Version pinning:** `@v1` follows the latest 1.x release. For fully reproducible builds pin an exact version such as `@v1.1.4`. See [Releases](https://github.com/GudditiN/release-scribe/releases).
+
+Want a dry run first? Add `dry_run: 'true'` — it prints the notes and writes/sends nothing.
+
+---
+
+## Permissions and secrets
+
+| What | Needed for | Where |
+|---|---|---|
+| `permissions: contents: write` | Committing `CHANGELOG.md`, creating/updating the GitHub Release | workflow |
+| `permissions: pull-requests: read` | `source: auto` / `prs` reading PR titles, descriptions and labels on **private** repos. Not needed for `source: commits`. | workflow |
+| `github_token: ${{ secrets.GITHUB_TOKEN }}` | PR details and `update_release` | action input (built in, nothing to create) |
+| `AI_API_KEY` (or your own name) | The LLM provider | repo secret |
+| `SLACK_WEBHOOK_URL` | Slack summary message | repo secret — optional |
+| `SLACK_BOT_TOKEN` + channel ID | Uploading files to Slack | repo secret — optional |
+
+Why `pull-requests: read` matters: as soon as a workflow declares `permissions:`, every permission you don't list is set to **none**. Without it, release-scribe on a private repo can't read PR descriptions and quietly falls back to commit messages.
+
+Secrets are never printed, and the generated text is checked for credential-like content before it is written or sent.
 
 ---
 
@@ -82,7 +105,7 @@ Add your API key: **Settings → Secrets → Actions → New secret** → name i
 |---|---|---|---|
 | `api_key` | **yes** | — | API key for the chosen LLM provider |
 | `provider` | no | `anthropic` | LLM provider name (see table above) |
-| `model` | no | provider default | Override the model (e.g. `gpt-4-turbo`) |
+| `model` | no | provider default | Override the model, e.g. `gpt-4o` or `claude-sonnet-5-5`. Defaults can change as providers retire models, so pin one if you need stable output |
 | `style` | no | `keepachangelog` | `keepachangelog` \| `conventional` \| `narrative` |
 | `from_tag` | no | latest git tag | Start of commit range |
 | `to_ref` | no | `HEAD` | End of commit range |
@@ -199,6 +222,36 @@ with:
 
 A Slack problem never fails your release — it logs a warning instead.
 
+#### Set up the Slack webhook (summary message) — about 2 minutes
+
+1. Go to [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From scratch**. Name it (e.g. *Release Scribe*) and pick your workspace.
+2. In the left menu open **Incoming Webhooks** and switch **Activate Incoming Webhooks** on.
+3. Click **Add New Webhook to Workspace**, choose the channel releases should be posted to, and click **Allow**.
+4. Copy the **Webhook URL** (it looks like `https://hooks.slack.com/services/T…/B…/…`).
+5. In GitHub: **Settings → Secrets and variables → Actions → New repository secret** → name `SLACK_WEBHOOK_URL`, paste the URL.
+6. Add `slack_webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}` to the action step.
+
+A webhook is tied to the channel you picked. To post to another channel, add a second webhook (repeat step 3) or create a separate secret per channel. Treat the URL as a password — anyone who has it can post to that channel.
+
+#### Set up file upload (optional) — bot token
+
+1. In the same Slack app open **OAuth & Permissions** → **Bot Token Scopes** → **Add an OAuth Scope** → `files:write`.
+2. Click **Install to Workspace** (or **Reinstall**) and approve. Copy the **Bot User OAuth Token** (starts with `xoxb-`).
+3. Save it as the GitHub secret `SLACK_BOT_TOKEN`.
+4. In Slack, open the target channel and run `/invite @Release Scribe` — the bot can only upload to channels it is a member of.
+5. Get the **channel ID**: open the channel → click its name → **About** → the ID is at the bottom (e.g. `C0123456789`). Use the ID, not `#name`.
+6. Set `slack_mode: both` (or `files`) with `slack_bot_token` and `slack_channel_id`.
+
+**Slack troubleshooting**
+
+| Log message | Cause and fix |
+|---|---|
+| `invalid_token` / `not_authed` | Wrong or revoked bot token — reinstall the app and update the secret |
+| `missing_scope` | Add the `files:write` scope, then reinstall the app |
+| `channel_not_found` | Used the channel name instead of its ID, or a private channel the bot can't see |
+| `not_in_channel` | Run `/invite @Release Scribe` in that channel |
+| `no_service` / `invalid_payload` (webhook) | The webhook was deleted or the URL is wrong — create a new one |
+
 ### README block and downloadable artifact
 
 ```yaml
@@ -280,7 +333,7 @@ flow that could cause spurious logouts under heavy load.
 ```yaml
 - name: Generate changelog
   id: cl
-  uses: GudditiN/ai-changelog-generator@v1
+  uses: GudditiN/release-scribe@v1
   with:
     api_key: ${{ secrets.AI_API_KEY }}
 
@@ -307,6 +360,61 @@ project_context: 'Open-source Rust HTTP client library'
 **Manual runs** — trigger from Actions → workflow → Run workflow if you want to regenerate notes for an existing tag.
 
 **Combine with softprops/action-gh-release** — generate notes, then use the `release_notes` output as the Release body while attaching build artifacts.
+
+---
+
+## Customisation cookbook
+
+```yaml
+# Plain-language notes for end users, built from PR descriptions
+with:
+  audience: customers
+  source: auto
+  style: narrative
+
+# House style from a file in your repo (.github/release-style.md)
+with:
+  custom_instructions_file: '.github/release-style.md'
+  project_context: 'Open-source Rust HTTP client library'
+
+# Choose the exact range
+with:
+  from_tag: v2.0.0
+  to_ref: main
+  release_version: v2.1.0-rc1
+
+# Several providers: fall back if the first is rate-limited
+with:
+  provider: groq
+  api_key: ${{ secrets.GROQ_KEY }}
+  fallback_providers: 'openai:gpt-4o'
+  provider_keys: |
+    openai=${{ secrets.OPENAI_KEY }}
+```
+
+Example `.github/release-style.md`:
+
+```markdown
+- Write for non-technical customers; avoid jargon.
+- Lead each bullet with the benefit, not the implementation.
+- Never mention internal ticket numbers.
+- Keep the whole entry under 120 words.
+```
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause and fix |
+|---|---|
+| "No commits found in range" and no files written | Checkout is shallow — set `fetch-depth: 0`. Or the previous tag equals the new tag; tag a new commit |
+| `HTTP 404 … model not found` | The model was retired or your key can't access it — set `model:` to one your provider currently lists |
+| `HTTP 429` | Rate limit. The action retries with back-off; for free tiers use `fallback_providers` or `max_input_tokens` |
+| Notes are vague or generic | Use `source: auto` with a `github_token` so PR descriptions are included, and write descriptive PR titles |
+| Notes mention PRs the repo doesn't use | Set `source: commits` |
+| "Could not find GitHub Release for tag" | Create the Release first (`gh release create vX.Y.Z`) or add a step that does, then run the action |
+| `CHANGELOG.md` commit fails to push | `permissions: contents: write` is missing, or branch protection blocks the bot — push to a PR branch instead |
+| Slack posts nothing | See [Slack troubleshooting](#set-up-the-slack-webhook-summary-message--about-2-minutes). Slack errors only log warnings |
 
 ---
 
