@@ -1,5 +1,12 @@
 # Changelog
 
+## [v1.1.5] - 2026-11-20
+
+### Added
+- Added comprehensive documentation covering release setup steps and required permissions for the Scribe GitHub Action.
+- Improved the Marketplace listing guide with clearer instructions and updated screenshots.
+- Updated the changelog to reflect the changes introduced in version v1.1.4.
+
 ## [v1.1.4] - 2026-11-19
 
 ### Added
