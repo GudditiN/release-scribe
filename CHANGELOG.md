@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.1.7] - 2026-11-20
+
+### Added
+- Introduced a modern Slack release card layout with safer formatting and a new `slack_style` configuration option to force the legacy layout.
+
+### Changed
+- Updated the default behavior to use the new Slack layout with automatic fallbacks while keeping existing workflows unchanged.
+
+### Fixed
+- Fixed release‑note generation so Slack announcements correctly reference the previous release tag and no longer include unrelated change entries.
+
 ## [v1.1.6] - 2026-11-20
 
 ### Changed
